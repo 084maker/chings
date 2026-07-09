@@ -43,7 +43,23 @@ body.layout [contenteditable]{cursor:default;}
 #layout-tip{position:fixed; bottom:14px; left:50%; transform:translateX(-50%); background:var(--navy); color:#fff;
   padding:8px 20px; border-radius:20px; font-size:13px; z-index:98; box-shadow:0 2px 10px rgba(0,0,0,.3); display:none;}
 body.layout #layout-tip{display:block;}
-@media print{.sel-el{outline:none !important;} .rz-handle,#layout-tip{display:none !important;}}
+
+/* ===== 自製教材:面板與頁面工具 ===== */
+.tb-panel{display:none; position:fixed; top:54px; right:20px; background:#fff; border-radius:10px; z-index:100;
+  box-shadow:0 4px 20px rgba(0,0,0,.3); padding:8px; min-width:190px;}
+.tb-panel.open{display:block;}
+.tb-panel button{display:block; width:100%; text-align:left; background:none; border:none; padding:9px 12px;
+  font-family:inherit; font-size:13.5px; font-weight:700; color:var(--ink); border-radius:7px; cursor:pointer;}
+.tb-panel button:hover{background:#f0ebdd;}
+.tb-panel .pt{font-size:11px; color:#888; padding:4px 12px 2px; font-weight:800;}
+.pg-tools{position:absolute; top:2mm; right:2mm; z-index:50; display:none; gap:4px;}
+.page:hover .pg-tools{display:flex;}
+.pg-tools button{background:var(--navy); color:#fff; border:none; border-radius:6px; padding:4px 9px;
+  font-family:inherit; font-size:12px; font-weight:700; cursor:pointer; opacity:.85;}
+.pg-tools button:hover{opacity:1;}
+.user-el{position:absolute; z-index:8; background:transparent;}
+
+@media print{.sel-el{outline:none !important;} .rz-handle,#layout-tip,.tb-panel,.pg-tools{display:none !important;}}
 
 /* ===== A4 頁面 ===== */
 .page{width:210mm; height:297mm; background:var(--cream); margin:24px auto; box-shadow:0 3px 14px rgba(0,0,0,.28);
@@ -208,10 +224,26 @@ table.tb td{padding:1.2mm 1.5mm !important;}
   <span class="hint" id="hint-text">✏️ 點文字直接編輯|勾選框、星星點一下切換</span>
   <span class="spacer"></span>
   <button class="mode" id="btn-layout" onclick="toggleLayout()">🧩 排版模式:關</button>
+  <button class="ghost" onclick="togglePanel('panel-page')">➕ 新增頁面</button>
+  <button class="ghost" onclick="togglePanel('panel-el')">🧱 新增元件</button>
   <button class="ghost" onclick="document.getElementById('img-input').click()">🖼 插入圖片</button>
   <button class="ghost" onclick="saveHtml()">💾 儲存檔案</button>
   <button onclick="window.print()">🖨 匯出 PDF / 列印</button>
   <input type="file" id="img-input" accept="image/*" style="display:none">
+</div>
+<div id="panel-page" class="tb-panel">
+  <div class="pt">新頁面會插在目前畫面這一頁的後面</div>
+  <button onclick="addPage('blank')">📄 空白頁(含頁首頁尾)</button>
+  <button onclick="addPage('dup')">⧉ 複製目前這一頁</button>
+</div>
+<div id="panel-el" class="tb-panel">
+  <div class="pt">元件會加到目前這一頁,可拖曳定位</div>
+  <button onclick="addEl('text')">🔤 文字</button>
+  <button onclick="addEl('fl')">✏️ 填寫線</button>
+  <button onclick="addEl('cb')">☑️ 勾選框清單</button>
+  <button onclick="addEl('star')">⭐ 星星評分</button>
+  <button onclick="addEl('card')">🗂 區塊卡片</button>
+  <button onclick="addEl('table')">📊 表格</button>
 </div>
 <div id="layout-tip">🧩 排版模式:點選 → 拖曳移動|選取後再點內部可選單一物件|方向鍵微調|Delete 刪除|右下角圓點縮放</div>
 
@@ -1142,16 +1174,16 @@ table.tb td{padding:1.2mm 1.5mm !important;}
 <!-- 頁面將插入此處 -->
 
 <script>
-// ===== 文字編輯 =====
-function enableTextEdit(){
-  document.querySelectorAll('.page *').forEach(el=>{
+// ===== 文字編輯(可指定範圍,新增頁面/元件會自動套用)=====
+function enableTextEdit(root){
+  (root||document).querySelectorAll(root&&root.classList&&root.classList.contains('page')?'*':'.page *').forEach(el=>{
     if(el.closest('svg'))return;
     if(el.classList.contains('cb')||el.classList.contains('star'))return;
     const hasText=[...el.childNodes].some(n=>n.nodeType===3&&n.textContent.trim());
     const onlyText=[...el.children].every(c=>c.tagName==='BR'||c.tagName==='B'||c.tagName==='I'||c.tagName==='SPAN'&&!c.classList.contains('cb')&&!c.classList.contains('star'));
     if(hasText&&onlyText)el.setAttribute('contenteditable','true');
   });
-  document.querySelectorAll('.wl').forEach(el=>el.setAttribute('contenteditable','true'));
+  (root||document).querySelectorAll('.wl').forEach(el=>el.setAttribute('contenteditable','true'));
 }
 // ===== 版面壓縮:調整各頁行距與間距,確保 A4 不裁切 =====
 function fitPages(){
@@ -1184,6 +1216,7 @@ function fitPages(){
 document.addEventListener('DOMContentLoaded',()=>{
   fitPages();
   enableTextEdit();
+  document.querySelectorAll('.page').forEach(addTools);
   document.body.addEventListener('click',e=>{
     if(layoutOn)return;
     if(e.target.classList.contains('cb')){e.target.classList.toggle('on');}
@@ -1227,7 +1260,7 @@ function setTr(el,x,y){el.dataset.tx=x; el.dataset.ty=y; el.style.transform=`tra
 let drag=null;
 document.addEventListener('mousedown',e=>{
   if(!layoutOn)return;
-  if(e.target.closest('#toolbar')||e.target.closest('#layout-tip'))return;
+  if(e.target.closest('#toolbar')||e.target.closest('#layout-tip')||e.target.closest('.pg-tools')||e.target.closest('.tb-panel'))return;
   if(e.target.classList.contains('rz-handle')){
     const img=selEl; const r=img.getBoundingClientRect();
     drag={mode:'resize',el:img,sx:e.clientX,sw:r.width}; e.preventDefault(); return;
@@ -1289,10 +1322,103 @@ document.addEventListener('DOMContentLoaded',()=>{
   });
 });
 
+// ===== 自製教材:新增頁面 / 元件 / 頁面工具 =====
+function togglePanel(id){
+  document.querySelectorAll('.tb-panel').forEach(p=>{if(p.id!==id)p.classList.remove('open');});
+  document.getElementById(id).classList.toggle('open');
+}
+document.addEventListener('click',e=>{
+  if(!e.target.closest('.tb-panel')&&!e.target.closest('#toolbar'))
+    document.querySelectorAll('.tb-panel').forEach(p=>p.classList.remove('open'));
+});
+function currentPage(){
+  const pgs=[...document.querySelectorAll('.page')];
+  const mid=window.innerHeight/2;
+  let best=pgs[0],d=1e9;
+  pgs.forEach(p=>{const r=p.getBoundingClientRect();const v=Math.abs((r.top+r.bottom)/2-mid);if(v<d){d=v;best=p;}});
+  return best;
+}
+const BLANK_PAGE=`<div class="frame"></div>
+  <div class="hdr">
+    <div class="logo-block"><img class="logo-img" src="logo.png" alt="logo"><div class="logo-name">CHING'S</div><div class="logo-sub">ENGLISH STUDIO</div></div>
+    <div class="hdr-mid">
+      <h1 class="hdr-title">New Worksheet</h1>
+      <div class="hdr-orn"><svg width="46" height="18"><use href="#sprig"/></svg><span class="ln"></span>♥<span class="ln"></span><svg width="46" height="18" style="transform:scaleX(-1)"><use href="#sprig"/></svg></div>
+      <div class="hdr-tag">點我編輯副標題</div>
+    </div>
+    <div class="hdr-leaf"><svg><use href="#branch"/></svg></div>
+  </div>
+  <div style="min-height:180mm;"></div>
+  <div class="foot"><div class="heartline">♥</div><div class="rule"></div><div class="ft-in"><span class="motto">Learn with Confidence. Grow with Joy.</span><span class="pageno">Page _ / _</span></div></div>`;
+function addPage(kind){
+  const cur=currentPage();
+  let pg;
+  if(kind==='dup'){
+    pg=cur.cloneNode(true);
+    pg.removeAttribute('id');
+    pg.querySelectorAll('.pg-tools,.rz-handle').forEach(t=>t.remove());
+    pg.querySelectorAll('.sel-el').forEach(s=>s.classList.remove('sel-el'));
+  }else{
+    pg=document.createElement('div'); pg.className='page'; pg.innerHTML=BLANK_PAGE;
+  }
+  cur.after(pg);
+  initPage(pg);
+  togglePanel('panel-page');
+  pg.scrollIntoView({behavior:'smooth',block:'start'});
+}
+const EL_TPL={
+  text:'<div style="font-size:15px; font-weight:700; color:var(--navy); min-width:40mm;">點我編輯文字</div>',
+  fl:'<div class="fl" style="width:70mm;"><span class="lab">標題 :</span><span class="wl"></span></div>',
+  cb:'<div style="min-width:45mm;"><div class="cbrow"><span class="cb"></span>選項一</div><div class="cbrow"><span class="cb"></span>選項二</div><div class="cbrow"><span class="cb"></span>選項三</div></div>',
+  star:'<div style="white-space:nowrap;"><span class="lab" style="font-weight:700; color:var(--navy); margin-right:3mm;">評分 :</span><span class="star"></span> <span class="star"></span> <span class="star"></span> <span class="star"></span> <span class="star"></span></div>',
+  card:'<div class="card br-green" style="width:85mm; min-height:35mm;"><div class="sec-h"><span class="ic-round bg-green">★</span><div class="t" style="color:var(--navy);">區塊標題</div></div><div class="wl" style="margin-top:5mm; border-bottom:1.2px solid var(--line); min-height:6mm;"></div><div class="wl" style="margin-top:4mm; border-bottom:1.2px solid var(--line); min-height:6mm;"></div><div class="wl" style="margin-top:4mm; border-bottom:1.2px solid var(--line); min-height:6mm;"></div></div>',
+  table:'<div style="width:120mm; border:1.2px solid var(--box-border); border-radius:2mm; overflow:hidden; background:#fffdf7;"><table style="width:100%; border-collapse:collapse; font-size:12px;"><tr><th style="background:var(--green); color:#fff; font-weight:800; padding:2mm;">欄位一</th><th style="background:var(--green); color:#fff; font-weight:800; padding:2mm;">欄位二</th><th style="background:var(--green); color:#fff; font-weight:800; padding:2mm;">欄位三</th></tr><tr><td style="height:8mm; border:1px solid #e6dfcc;"></td><td style="border:1px solid #e6dfcc;"></td><td style="border:1px solid #e6dfcc;"></td></tr><tr><td style="height:8mm; border:1px solid #e6dfcc;"></td><td style="border:1px solid #e6dfcc;"></td><td style="border:1px solid #e6dfcc;"></td></tr><tr><td style="height:8mm; border:1px solid #e6dfcc;"></td><td style="border:1px solid #e6dfcc;"></td><td style="border:1px solid #e6dfcc;"></td></tr></table></div>'
+};
+function addEl(kind){
+  const pg=currentPage();
+  const box=document.createElement('div');
+  box.className='user-el';
+  box.style.cssText='left:55mm; top:90mm;';
+  box.innerHTML=EL_TPL[kind];
+  pg.appendChild(box);
+  enableTextEdit(pg);
+  togglePanel('panel-el');
+  if(!layoutOn)toggleLayout();
+  selectEl(box);
+  box.scrollIntoView({block:'center',behavior:'smooth'});
+}
+function initPage(pg){
+  addTools(pg);
+  enableTextEdit(pg);
+}
+function addTools(pg){
+  if(pg.querySelector(':scope > .pg-tools'))return;
+  const bar=document.createElement('div');
+  bar.className='pg-tools';
+  bar.innerHTML='<button data-a="dup" title="複製此頁">⧉</button><button data-a="up" title="上移">↑</button><button data-a="down" title="下移">↓</button><button data-a="del" title="刪除此頁" style="background:#a33;">\u{1F5D1}</button>';
+  bar.addEventListener('click',e=>{
+    const a=e.target.dataset.a; if(!a)return;
+    if(a==='del'){ if(confirm('確定刪除這一頁？')){pg.remove();} return;}
+    if(a==='dup'){
+      const c=pg.cloneNode(true); c.removeAttribute('id');
+      c.querySelectorAll('.pg-tools,.rz-handle').forEach(t=>t.remove());
+      c.querySelectorAll('.sel-el').forEach(s=>s.classList.remove('sel-el'));
+      pg.after(c); initPage(c); c.scrollIntoView({behavior:'smooth',block:'start'}); return;
+    }
+    if(a==='up'){const prev=pg.previousElementSibling; if(prev&&prev.classList.contains('page'))prev.before(pg); pg.scrollIntoView({behavior:'smooth',block:'start'}); return;}
+    if(a==='down'){const nx=pg.nextElementSibling; if(nx&&nx.classList.contains('page'))nx.after(pg); pg.scrollIntoView({behavior:'smooth',block:'start'}); return;}
+  });
+  pg.appendChild(bar);
+}
+
 // ===== 儲存目前版面為 HTML 檔 =====
 function saveHtml(){
   deselect();
+  // 匯出前移除頁面工具列(重新開啟時會自動重建)
+  const bars=[...document.querySelectorAll('.pg-tools')];
+  bars.forEach(b=>b.remove());
   const html='<!DOCTYPE html>\n'+document.documentElement.outerHTML;
+  document.querySelectorAll('.page').forEach(addTools);
   const blob=new Blob([html],{type:'text/html;charset=utf-8'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
